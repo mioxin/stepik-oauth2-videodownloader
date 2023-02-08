@@ -29,4 +29,4 @@ The Script use curl.exe for download a videos and ffmpeg.exe for merging step's 
 
 Also it renew the output format.
 
-![screen](.\screen.png)
+![screen](./screen.png)
