@@ -24,4 +24,9 @@ Downloads all video files from a module (week) of a course or the whole course.
 Additions
 ===
 Added new loader downloader_stepic_ntlm_curl.py.
-It need for working across corporate ntlm web proxy
+It need for working across a corporate ntlm web proxy.
+The Script use curl.exe for download a videos and ffmpeg.exe for merging step's video in the general video of week.
+
+Also it renew the output format.
+
+![screen](.\screen.png)
