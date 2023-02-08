@@ -21,3 +21,7 @@ Downloads all video files from a module (week) of a course or the whole course.
   ```
  python3 downloader.py [-h] --course_id=COURSE_ID --client_id=CLIENT_ID --client_secret=CLIENT_SECRET [--week_id=WEEK_ID] [--quality=360|720|1080] [--output_dir=.]
   ```
+Additions
+===
+Added new loader downloader_stepic_ntlm_curl.py.
+It need for working across corporate ntlm web proxy
