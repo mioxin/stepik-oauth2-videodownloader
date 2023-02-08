@@ -75,7 +75,7 @@ class Downloader:
         self.reqst = HTTP_win()
         headers={
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': 'Basic ZGxKN2xWWDRHMVRSZkpoRFhBUDBuV1l0TG5MVjgwWG5EUXl0TW9hRzpBeWg1dGtiQnNYaUdRZnBUVEpNWVo2TFRrUlBON0tKWEVXNDZabjJ6ZVg0NTVLa3hFa0RzN1dESkk3YU9vRjNoTEtUZnFkOXZIYW90RW1uZTkxMHFGMjhwMUc2UFVpb2VsM1d4eUVtYkF1d09vaWVmdWdheEtuRkNRc2ZTMlVROQ=='
+            'Authorization': 'Basic ZGxKN2xWWDRHMVRSZkpoR000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000uZTkxMHFGMjhwMUc2UFVpb2VsM1d4eUVtYkF1d09vaWVmdWdheEtuRkNRc2ZTMlVROQ=='
         }
         resp_text = self.reqst.get_text(self.reqst.url_post)('https://stepik.org/oauth2/token/', 'grant_type=client_credentials',args.client_id, args.client_secret,headers)
         self.token = json.loads(resp_text)['access_token']
@@ -209,7 +209,7 @@ class Downloader:
                         print('URL ', el['url'])
                         #urllib.request.urlretrieve(el['url'], filename, Utils.reporthook)
                         if not os.path.isfile(filename):
-                            err = os.system(f'curl -U : -k -x proxy-all.hq.bc:8080 --proxy-ntlm -o "{filename}" {el["url"]}')
+                            err = os.system(f'curl -U : -k -x proxy.org:8080 --proxy-ntlm -o "{filename}" {el["url"]}')
                             if err > 0 :
                                 print('Downloading failed.')
                         else:
