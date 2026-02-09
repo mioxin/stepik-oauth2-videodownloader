@@ -96,5 +96,5 @@ class HTTP_win:
 
 if __name__ == "__main__":
     http = HTTP_win()
-    print(http.get_text(http.url_post)('https://stepik.org/oauth2/token/?', 'grant_type=client_credentials', user='dlJ7lVX4G1TRfJhDXAP0nWYtLnLV80XnDQytMoaG', passw='Ayh5tkbBsXiGQfpTTJMYZ6LTkRPN7KJXEW46Zn2zeX455KkxEkDs7WDJI7aOoF3hLKTfqd9vHaotEmne910qF28p1G6PUioel3WxyEmbAuwOoiefugaxKnFCQsfS2UQ9'))
+    print(http.get_text(http.url_post)('https://stepik.org/oauth2/token/', 'grant_type=client_credentials', user='dlJ7lVX4G1TRfJhDXAP0nWYtLnLV80XnDQytMoaG', passw='Ayh5tkbBsXiGQfpTTJMYZ6LTkRPN7KJXEW46Zn2zeX455KkxEkDs7WDJI7aOoF3hLKTfqd9vHaotEmne910qF28p1G6PUioel3WxyEmbAuwOoiefugaxKnFCQsfS2UQ9'))
                                                                                                              

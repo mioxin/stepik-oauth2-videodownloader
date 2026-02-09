@@ -64,3 +64,5 @@ settings.py
 
 # Additional directories
 .idea/
+downloader_stepic_ntlm_curl.py.7z
+.gitignore

@@ -5,11 +5,18 @@ import urllib
 import urllib.request
 import requests
 import sys
+import re
 from requests.auth import HTTPBasicAuth
 
+proxies = {
+   'http': 'http://127.0.0.1:3129',
+   'https': 'http://127.0.0.1:3129',
+}
+
+sections = []
 
 def get_course_page(api_url, token):
-    return json.loads(requests.get(api_url, headers={'Authorization': 'Bearer ' + token}).text)
+    return json.loads(requests.get(api_url, headers={'Authorization': 'Bearer ' + token}, verify=False).text)
 
 
 def get_all_weeks(stepik_resp):
@@ -17,19 +24,22 @@ def get_all_weeks(stepik_resp):
 
 
 def get_unit_list(section_list, token):
+    global sections
     resp = [json.loads(requests.get('https://stepik.org/api/sections/' + str(arr),
-                                    headers={'Authorization': 'Bearer ' + token}).text)
+                                    headers={'Authorization': 'Bearer ' + token}, verify=False).text)
             for arr in section_list]
+    sections = [title['sections'][0]['title'] for title in resp]
+    # print("Section 1\n+++++++++++++++++\n" + str(sections))
     return [section['sections'][0]['units'] for section in resp]
 
 
 def get_steps_list(units_list, week, token):
     data = [json.loads(requests.get('https://stepik.org/api/units/' + str(unit_id),
-                                    headers={'Authorization': 'Bearer ' + token}).text)
+                                    headers={'Authorization': 'Bearer ' + token}, verify=False).text)
             for unit_id in units_list[week - 1]]
     lesson_lists = [elem['units'][0]['lesson'] for elem in data]
     data = [json.loads(requests.get('https://stepik.org/api/lessons/' + str(lesson_id),
-                                    headers={'Authorization': 'Bearer ' + token}).text)['lessons'][0]['steps']
+                                    headers={'Authorization': 'Bearer ' + token}, verify=False).text)['lessons'][0]['steps']
             for lesson_id in lesson_lists]
     return [item for sublist in data for item in sublist]
 
@@ -38,7 +48,7 @@ def get_only_video_steps(step_list, token):
     resp_list = list()
     for s in step_list:
         resp = json.loads(requests.get('https://stepik.org/api/steps/' + str(s),
-                                       headers={'Authorization': 'Bearer ' + token}).text)
+                                       headers={'Authorization': 'Bearer ' + token}, verify=False).text)
         if resp['steps'][0]['block']['video']:
             resp_list.append(resp['steps'][0]['block'])
     print('Only video:', len(resp_list))
@@ -95,6 +105,7 @@ def reporthook(blocknum, blocksize, totalsize): # progressbar
         sys.stderr.write("read %d\n" % (readsofar,))
 
 def main():
+    exclude_simbols = r'[:"|/<>*?]?'
     args = parse_arguments()
 
     """
@@ -104,17 +115,24 @@ def main():
     """
 
     auth = HTTPBasicAuth(args.client_id, args.client_secret)
-    resp = requests.post('https://stepik.org/oauth2/token/', data={'grant_type': 'client_credentials'}, auth=auth)
+    resp = requests.post('https://stepik.org/oauth2/token/', data={'grant_type': 'client_credentials'}, 
+           auth=auth, proxies=proxies, verify=False)
+    print(resp.json())
     token = json.loads(resp.text)['access_token']
 
     course_data = get_course_page('http://stepik.org/api/courses/' + args.course_id, token)
+    
+    course_name = re.sub(exclude_simbols,'', course_data['courses'][0]['title'])
 
     weeks_num = get_all_weeks(course_data)
 
     all_units = get_unit_list(weeks_num, token)
+
     # Loop through all week in a course and
     # download all videos or
     # download only for the week_id is passed as an argument.
+    os.mkdir(os.path.join(args.output_dir, course_name))
+
     for week in range(1, len(weeks_num)+1):
         # Skip if week_id is passed as an argument
         args_week_id = str(args.week_id)
@@ -165,13 +183,18 @@ def main():
                 exit(1)
 
         print('Folder_name ', folder_name)
+        inputfilename = os.path.join(folder_name, 'inp.txt')
+        inputfile = open(inputfilename,'w')
 
-        for week, el in enumerate(url_list_with_q):
+        print(week)
+        for wee, el in enumerate(url_list_with_q):
             # Print a message if something wrong.
             if el['msg']:
                 print("{}".format(el['msg']))
 
-            filename = os.path.join(folder_name, 'Video_' + str(week) + '.mp4')
+            filename = os.path.join(folder_name, 'Video_' + str(wee) + '.mp4')
+            inputfile.write('file \'Video_' + str(wee) + '.mp4\'\n')
+
             if not os.path.isfile(filename):
                 try:
                     print('Downloading file ', filename)
@@ -188,6 +211,20 @@ def main():
             else:
                 print('File {} already exist'.format(filename))
         print("All steps downloaded")
+
+        inputfile.close()
+
+        #concat videofiles by ffmpeg 
+        outputfilename = (os.path.join(args.output_dir, course_name, str(week) + '. '
+                                   + re.sub(exclude_simbols,'', sections[week-1])).rstrip()+'.mp4')
+        if not os.path.isfile(outputfilename):
+            print("Start concat by FFMPEG... " + outputfilename)
+            cmd = f'start /MIN ffmpeg -f concat -safe 0 -i "{inputfilename}" -c copy "{outputfilename}"'
+            err = os.system(cmd)
+            if err > 0 :
+                print('Concatenation failed.')
+        else:
+            print('Concat file '+outputfilename+' exist.')
 
 
 if __name__ == "__main__":

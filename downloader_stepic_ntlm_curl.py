@@ -78,6 +78,7 @@ class Downloader:
             'Authorization': 'Basic ZGxKN2xWWDRHMVRSZkpoR000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000uZTkxMHFGMjhwMUc2UFVpb2VsM1d4eUVtYkF1d09vaWVmdWdheEtuRkNRc2ZTMlVROQ=='
         }
         resp_text = self.reqst.get_text(self.reqst.url_post)('https://stepik.org/oauth2/token/', 'grant_type=client_credentials',args.client_id, args.client_secret,headers)
+        print(resp_text)
         self.token = json.loads(resp_text)['access_token']
         self.course_data = self.get_course_page('http://stepik.org/api/courses/' + args.course_id)
         
