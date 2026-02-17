@@ -16,6 +16,7 @@ proxies = {
 }
 
 API_BASE = 'https://stepik.org/api'
+MAX_IDS_PER_REQUEST = 1   # ← безопасное значение, можно поднять до 80–100 после тестов
 
 
 def sanitize_filename(name: str) -> str:
@@ -23,11 +24,26 @@ def sanitize_filename(name: str) -> str:
     return re.sub(r'[:\"|/<>*?]+', '', name)
 
 
-def get_json(session: Session, url: str) -> dict:
-    """GET a URL and return parsed JSON, raising on errors."""
-    resp = session.get(url, headers=session.headers)
-    resp.raise_for_status()
-    return resp.json()
+def get_json(session: Session, url: str, ids_list: List[int] = None) -> List[Dict]:
+    """GET a URL (with optional query parameters) and return parsed JSON, raising on errors."""
+
+    if ids_list is None:
+        resp = session.get(url, headers=session.headers)
+        resp.raise_for_status()
+        return resp.json()
+
+
+    results = []
+    for params in ids_list:
+        
+        r = session.get(f'{url}/{params}', headers=session.headers)
+        if r.status_code != 200:
+            continue
+            
+        data = r.json()
+        results.append(data)
+
+    return results
 
 
 def get_course_page(session: Session, course_id: str) -> dict:
@@ -41,15 +57,10 @@ def get_all_weeks(course_data: dict) -> List[int]:
 def get_unit_list(session: Session, section_ids: List[int]) -> List[List[int]]:
     if not section_ids:
         return []
-    
-    ids_str = ','.join(str(i) for i in section_ids)
-    resp = get_json(session, f'{API_BASE}/sections?ids={ids_str}')
-    sections = resp.get('sections', [])
-    
-    # store titles in session for later use
-    session.sections = [s.get('title', '') for s in sections]
-
-    return [s.get('units', []) for s in sections]
+    # use repeated ids[] params per API requirement
+    resp = get_json(session, f'{API_BASE}/sections', section_ids)
+    session.section = [s['sections'][0]['title'] for s in resp]
+    return [section['sections'][0]['units'] for section in resp]
 
 
 def get_steps_list(session: Session, units_list: List[List[int]], week_index: int) -> List[int]:
@@ -61,18 +72,16 @@ def get_steps_list(session: Session, units_list: List[List[int]], week_index: in
     if not unit_ids:
         return []
     
-    ids_str = ','.join(str(uid) for uid in unit_ids)
-    resp = get_json(session, f'{API_BASE}/units?ids={ids_str}')
-    lesson_ids = [u['lesson'] for u in resp.get('units', [])]
+    resp = get_json(session, f'{API_BASE}/units', unit_ids)
+    lesson_ids = [u['units'][0]['lesson'] for u in resp]
 
     if not lesson_ids:
         return []
     
-    ids_str = ','.join(str(lid) for lid in lesson_ids)
-    resp = get_json(session, f'{API_BASE}/lessons?ids={ids_str}')
+    resp = get_json(session, f'{API_BASE}/lessons', lesson_ids)
     steps = []
 
-    for lesson in resp.get('lessons', []):
+    for lesson in [u['lessons'][0] for u in resp]:
         steps.extend(lesson.get('steps', []))
 
     return steps
@@ -82,11 +91,10 @@ def get_only_video_steps(session: Session, step_ids: List[int]) -> List[Dict]:
     if not step_ids:
         return []
     
-    ids_str = ','.join(str(sid) for sid in step_ids)
-    resp = get_json(session, f'{API_BASE}/steps?ids={ids_str}')
+    resp = get_json(session, f'{API_BASE}/steps', step_ids)
     videos = []
 
-    for step in resp.get('steps', []):
+    for step in [u['steps'][0] for u in resp]:
         block = step.get('block', {})
         video = block.get('video')
         if video:
@@ -112,34 +120,71 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def download_file(session: Session, url: str, dest: str) -> None:
-    """Download a URL to destination using streaming."""
-    with session.get(url, stream=True) as r:
-        r.raise_for_status()
-        total = int(r.headers.get('content-length', 0))
-        with open(dest, 'wb') as f:
-            downloaded = 0
-            for chunk in r.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
+def download_file(session: Session, url: str, dest: str, retries: int = 3) -> None:
+    """Download a URL to destination using streaming with retries.
+
+    The function will attempt ``retries`` times in case of network errors.
+    A partial file is removed on failure.
+    """
+    attempt = 0
+    while attempt < retries:
+        try:
+            with session.get(url, stream=True, timeout=30) as r:
+                r.raise_for_status()
+                total = int(r.headers.get('content-length', 0))
+                with open(dest, 'wb') as f:
+                    downloaded = 0
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total:
+                                percent = downloaded * 100 / total
+                                sys.stderr.write(f'\r{percent:5.1f}% {downloaded} / {total}')
                     if total:
-                        percent = downloaded * 100 / total
-                        sys.stderr.write(f'\r{percent:5.1f}% {downloaded} / {total}')
-            if total:
-                sys.stderr.write('\n')
+                        sys.stderr.write('\n')
+            return
+        except (requests.exceptions.RequestException, IOError) as exc:
+            attempt += 1
+            if os.path.exists(dest):
+                os.remove(dest)
+            if attempt < retries:
+                print(f"download failed ({exc}), retry {attempt}/{retries}...")
+                continue
+            else:
+                raise
+
+
+def make_session_with_retries(retries: int = 3, backoff: float = 0.5) -> Session:
+    """Create a ``requests.Session`` configured with retry logic.
+
+    The session will retry on connection errors and read errors.
+    """
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(
+        max_retries=requests.adapters.Retry(
+            total=retries,
+            backoff_factor=backoff,
+            status_forcelist=[429, 500, 502, 503, 504],
+            raise_on_status=False,
+        )
+    )
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    return session
 
 
 def main():
     args = parse_arguments()
-
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     # prepare session
-    session = requests.Session()
+    session = make_session_with_retries(retries=5, backoff=0.5)
     session.proxies.update(proxies)
     session.verify = False  # consider removing in production
 
     auth = HTTPBasicAuth(args.client_id, args.client_secret)
-    token_resp = session.post(f'{API_BASE}/oauth2/token/',
+    token_resp = session.post(f'https://stepik.org/oauth2/token/',
                               data={'grant_type': 'client_credentials'},
                               auth=auth)
     
@@ -156,7 +201,9 @@ def main():
     course_name = sanitize_filename(course_data['courses'][0].get('title', args.course_id))
 
     weeks = get_all_weeks(course_data)
+    
     units = get_unit_list(session, weeks)
+    print('Units found:', units)
 
     base_dir = os.path.join(args.output_dir, course_name)
     os.makedirs(base_dir, exist_ok=True)
@@ -167,6 +214,8 @@ def main():
             continue
 
         steps = get_steps_list(session, units, week_idx)
+        print(f'Week {week_idx+1}: steps found:', steps)
+
         videos = get_only_video_steps(session, steps)
 
         if not videos:
@@ -199,18 +248,18 @@ def main():
 
         print('All steps downloaded for week', week_idx+1)
 
-        section_title = getattr(session, 'sections', [None])[week_idx] or ''
-        outputfilename = os.path.join(base_dir, f"{week_idx+1}. {sanitize_filename(section_title)}.mp4")
-        
+            #concat videofiles by ffmpeg 
+        outputfilename = (os.path.join(args.output_dir, course_name, str(week_idx+1) + '. '
+                                   + sanitize_filename(session.section[week_idx])).rstrip()+'.mp4')
         if not os.path.isfile(outputfilename):
             print("Start concat by FFMPEG... " + outputfilename)
-            import subprocess
-            res = subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', inp_path,
-                                  '-c', 'copy', outputfilename])
-            if res.returncode != 0:
+            cmd = f'start /MIN ffmpeg -f concat -safe 0 -i "{inp_path}" -c copy "{outputfilename}"'
+            err = os.system(cmd)
+            if err > 0 :
                 print('Concatenation failed.')
         else:
-            print('Concat file', outputfilename, 'exists.')
+            print('Concat file '+outputfilename+' exist.')
+
 
 
 if __name__ == "__main__":
