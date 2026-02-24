@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from typing import List, Dict, Optional
 
@@ -294,10 +295,18 @@ def main():
         )
         if not os.path.isfile(outputfilename):
             print("Start concat by FFMPEG... " + outputfilename)
-            cmd = f'start /MIN ffmpeg -f concat -safe 0 -i "{inp_path}" -c copy "{outputfilename}"'
-            err = os.system(cmd)
-            if err > 0:
-                print('Concatenation failed.')
+            cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', inp_path, '-c', 'copy', outputfilename]
+            log_path = os.path.join(week_dir, 'ffmpeg.log')
+            try:
+                with open(log_path, 'w', encoding='utf-8') as log_file:
+                    subprocess.Popen(
+                        cmd,
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                        stdout=log_file,
+                        stderr=subprocess.STDOUT
+                    )
+            except Exception as exc:
+                print(f"Error starting ffmpeg: {exc}")
         else:
             print('Concat file ' + outputfilename + ' exist.')
 
